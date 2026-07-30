@@ -541,25 +541,34 @@ function Select({ value, onChange, options, placeholder, className = "" }) {
 /* ------------------------------------------------------------------ */
 
 function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData, importData, fileInputRef, nominatedCount, toggleFavColor }) {
-  const [sortDir, setSortDir] = useState(null); // null | "asc" | "desc"
+  // Standardmäßig immer nach Position 1 sortiert (auch direkt nach dem Laden/Neustart)
+  const [sortField, setSortField] = useState("pos1"); // "pos1" | "favColor"
+  const [sortDir, setSortDir] = useState("asc");
 
   const posOptions = POSITIONS.map((p) => ({ value: p, label: `${p} – ${POS_LABEL[p]}` }));
   const noteOptions = NOTEN.map((n) => ({ value: n, label: n === 1 ? "1 (beste)" : n === 6 ? "6 (schlecht.)" : String(n) }));
 
-  function toggleSort() {
-    setSortDir((prev) => (prev === null ? "asc" : prev === "asc" ? "desc" : null));
+  function handleSort(field) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
   }
 
+  // Leichtgewichtige O(n log n) Sortierung - selbst bei mehreren hundert
+  // Spielern spürbar unter einer Millisekunde, kein Performance-Risiko.
   const displayedPlayers = useMemo(() => {
-    if (!sortDir) return players;
-    const idx = (pos) => (pos ? POSITIONS.indexOf(pos) : 999);
+    const posIdx = (pos) => (pos ? POSITIONS.indexOf(pos) : 999);
+    const favIdx = (color) => (color ? FAV_COLORS.findIndex((c) => c.value === color) : 999);
     const copy = [...players].sort((a, b) => {
-      const diff = idx(a.pos1) - idx(b.pos1);
+      const diff = sortField === "favColor" ? favIdx(a.favColor) - favIdx(b.favColor) : posIdx(a.pos1) - posIdx(b.pos1);
       if (diff !== 0) return sortDir === "asc" ? diff : -diff;
       return (a.name || "").localeCompare(b.name || "", "de");
     });
     return copy;
-  }, [players, sortDir]);
+  }, [players, sortField, sortDir]);
 
   return (
     <div>
@@ -590,11 +599,18 @@ function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData
             <tr className="bg-gray-900 text-white text-xs uppercase tracking-wide">
               <th className="px-3 py-2.5 text-left rounded-tl-lg" style={{ minWidth: "220px" }}>Name</th>
               <th className="px-3 py-2.5 text-center">Nominiert</th>
-              <th className="px-3 py-2.5 text-left cursor-pointer select-none" style={{ minWidth: "150px" }} onClick={toggleSort} title="Nach Position 1 sortieren">
+              <th className="px-3 py-2.5 text-left cursor-pointer select-none" style={{ minWidth: "110px" }} onClick={() => handleSort("favColor")} title="Nach Favorit sortieren">
+                <span className="inline-flex items-center gap-1">
+                  Favorit
+                  {sortField === "favColor" && sortDir === "asc" && <IconArrowUp className="w-3 h-3" />}
+                  {sortField === "favColor" && sortDir === "desc" && <IconArrowDown className="w-3 h-3" />}
+                </span>
+              </th>
+              <th className="px-3 py-2.5 text-left cursor-pointer select-none" style={{ minWidth: "150px" }} onClick={() => handleSort("pos1")} title="Nach Position 1 sortieren">
                 <span className="inline-flex items-center gap-1">
                   Position 1
-                  {sortDir === "asc" && <IconArrowUp className="w-3 h-3" />}
-                  {sortDir === "desc" && <IconArrowDown className="w-3 h-3" />}
+                  {sortField === "pos1" && sortDir === "asc" && <IconArrowUp className="w-3 h-3" />}
+                  {sortField === "pos1" && sortDir === "desc" && <IconArrowDown className="w-3 h-3" />}
                 </span>
               </th>
               <th className="px-3 py-2.5 text-left">Note 1</th>
@@ -603,7 +619,6 @@ function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData
               <th className="px-3 py-2.5 text-left">Position 3</th>
               <th className="px-3 py-2.5 text-left">Note 3</th>
               <th className="px-3 py-2.5 text-left">Positions-Lock</th>
-              <th className="px-3 py-2.5 text-left">Favorit</th>
               <th className="px-3 py-2.5 text-center rounded-tr-lg">Aktion</th>
             </tr>
           </thead>
@@ -625,16 +640,7 @@ function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData
                     <input type="checkbox" checked={p.nominated} onChange={(e) => updatePlayer(p.id, "nominated", e.target.checked)}
                       className="w-4 h-4 cursor-pointer accent-red" style={{ accentColor: "#dc2626" }} />
                   </td>
-                  <td className="px-3 py-2" style={{ minWidth: "150px" }}><Select value={p.pos1} onChange={(v) => updatePlayer(p.id, "pos1", v)} options={posOptions} placeholder="– wählen –" /></td>
-                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note1 ?? ""} onChange={(v) => updatePlayer(p.id, "note1", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
-                  <td className="px-3 py-2" style={{ minWidth: "150px" }}><Select value={p.pos2} onChange={(v) => updatePlayer(p.id, "pos2", v)} options={posOptions} placeholder="– optional –" /></td>
-                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note2 ?? ""} onChange={(v) => updatePlayer(p.id, "note2", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
-                  <td className="px-3 py-2" style={{ minWidth: "150px" }}><Select value={p.pos3} onChange={(v) => updatePlayer(p.id, "pos3", v)} options={posOptions} placeholder="– optional –" /></td>
-                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note3 ?? ""} onChange={(v) => updatePlayer(p.id, "note3", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
-                  <td className="px-3 py-2" style={{ minWidth: "130px" }}>
-                    <Select value={p.lock || "Keine"} onChange={(v) => updatePlayer(p.id, "lock", v || "Keine")} options={[{ value: "Keine", label: "Keine" }, ...lockOptions]} />
-                  </td>
-                  <td className="px-3 py-2" style={{ minWidth: "140px" }}>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}>
                     <div className="flex items-center gap-1">
                       {FAV_COLORS.map((c) => (
                         <button key={c.value} type="button" title={c.label} onClick={() => toggleFavColor(p.id, c.value)}
@@ -647,6 +653,15 @@ function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData
                           }} />
                       ))}
                     </div>
+                  </td>
+                  <td className="px-3 py-2" style={{ minWidth: "150px" }}><Select value={p.pos1} onChange={(v) => updatePlayer(p.id, "pos1", v)} options={posOptions} placeholder="– wählen –" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note1 ?? ""} onChange={(v) => updatePlayer(p.id, "note1", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "150px" }}><Select value={p.pos2} onChange={(v) => updatePlayer(p.id, "pos2", v)} options={posOptions} placeholder="– optional –" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note2 ?? ""} onChange={(v) => updatePlayer(p.id, "note2", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "150px" }}><Select value={p.pos3} onChange={(v) => updatePlayer(p.id, "pos3", v)} options={posOptions} placeholder="– optional –" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note3 ?? ""} onChange={(v) => updatePlayer(p.id, "note3", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "130px" }}>
+                    <Select value={p.lock || "Keine"} onChange={(v) => updatePlayer(p.id, "lock", v || "Keine")} options={[{ value: "Keine", label: "Keine" }, ...lockOptions]} />
                   </td>
                   <td className="px-3 py-2 text-center">
                     <button onClick={() => deletePlayer(p.id)} title="Spieler löschen" className="text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50">
