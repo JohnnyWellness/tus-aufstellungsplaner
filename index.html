@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TuS Diedesfeld – Aufstellungs-Planer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 4px; }
+</style>
+</head>
+<body class="min-h-screen bg-neutral-100 text-neutral-900">
+
+<div id="app"></div>
+
+<script>
+/* ================================================================== */
+/*  Konstanten                                                         */
+/* ================================================================== */
+
+const POSITIONS = ["TW", "IV", "LV", "RV", "DM", "OM", "LA", "RA", "MS"];
+const NOTEN = [1, 2, 3, 4, 5, 6];
+
+const POS_LABEL = {
+  TW: "Torwart", IV: "Innenverteidiger", LV: "Linksverteidiger", RV: "Rechtsverteidiger",
+  DM: "Def. Mittelfeld", OM: "Off. Mittelfeld", LA: "Linke Außenbahn", RA: "Rechte Außenbahn", MS: "Mittelstürmer",
+};
+
+// Slot-Listen (für den Zuordnungs-Algorithmus): welche Positionen braucht die Formation insgesamt
+const FORMATIONS = {
+  "4-4-2 Flach":   ["TW","LV","IV","IV","RV","DM","DM","LA","RA","MS","MS"],
+  "4-4-2 Raute":   ["TW","LV","IV","IV","RV","DM","LA","RA","OM","MS","MS"],
+  "4-3-3":         ["TW","LV","IV","IV","RV","DM","OM","OM","LA","RA","MS"],
+  "4-2-3-1":       ["TW","LV","IV","IV","RV","DM","DM","LA","RA","OM","MS"],
+  "3-5-2":         ["TW","LV","IV","RV","DM","DM","OM","LA","RA","MS","MS"],
+  "3-4-3":         ["TW","LV","IV","RV","DM","DM","LA","LA","RA","RA","MS"],
+  "4-1-4-1":       ["TW","LV","IV","IV","RV","DM","LA","RA","OM","OM","MS"],
+  "5-3-2":         ["TW","IV","IV","IV","LV","RV","DM","DM","OM","MS","MS"],
+};
+
+// Taktische Zeilen (Angriff -> Tor) für eine realistische, formationstreue Darstellung.
+// Jede Positionsangabe wird der Reihe nach aus der jeweiligen Positions-Warteschlange bedient,
+// damit z.B. beim 3-4-3 der eine LA-Slot im Mittelfeld und der andere im Sturm auftaucht.
+const FORMATION_LAYOUT = {
+  "4-4-2 Flach":  [["MS","MS"], ["LA","DM","DM","RA"], ["LV","IV","IV","RV"], ["TW"]],
+  "4-4-2 Raute":  [["MS","MS"], ["OM"], ["LA","RA"], ["DM"], ["LV","IV","IV","RV"], ["TW"]],
+  "4-3-3":        [["LA","MS","RA"], ["OM","OM"], ["DM"], ["LV","IV","IV","RV"], ["TW"]],
+  "4-2-3-1":      [["MS"], ["LA","OM","RA"], ["DM","DM"], ["LV","IV","IV","RV"], ["TW"]],
+  "3-5-2":        [["MS","MS"], ["LA","DM","OM","DM","RA"], ["LV","IV","RV"], ["TW"]],
+  "3-4-3":        [["LA","MS","RA"], ["LA","DM","DM","RA"], ["LV","IV","RV"], ["TW"]],
+  "4-1-4-1":      [["MS"], ["LA","OM","OM","RA"], ["DM"], ["LV","IV","IV","RV"], ["TW"]],
+  "5-3-2":        [["MS","MS"], ["DM","OM","DM"], ["LV","IV","IV","IV","RV"], ["TW"]],
+};
+
+const DEF_POS = ["IV", "LV", "RV", "DM"];
+const OFF_POS = ["OM", "LA", "RA", "MS"];
+
+const STORAGE_KEY = "tus-diedesfeld-spieler-v1";
+
+const SAMPLE_PLAYERS = [
+  { id: "p1", name: "Lukas Weber", nominated: true, pos1: "TW", note1: 2, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" },
+  { id: "p2", name: "Jonas Becker", nominated: true, pos1: "IV", note1: 2, pos2: "LV", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p3", name: "Tim Schuster", nominated: true, pos1: "IV", note1: 1, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" },
+  { id: "p4", name: "Paul Krämer", nominated: true, pos1: "RV", note1: 2, pos2: "DM", note2: 4, pos3: "", note3: null, lock: "Keine" },
+  { id: "p5", name: "Finn Wagner", nominated: true, pos1: "LV", note1: 2, pos2: "LA", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p6", name: "Noah Fischer", nominated: true, pos1: "DM", note1: 1, pos2: "IV", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p7", name: "Elias Klein", nominated: true, pos1: "DM", note1: 2, pos2: "OM", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p8", name: "Ben Hoffmann", nominated: true, pos1: "OM", note1: 1, pos2: "MS", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p9", name: "Leon Meyer", nominated: true, pos1: "LA", note1: 2, pos2: "OM", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p10", name: "Felix Schmidt", nominated: true, pos1: "RA", note1: 1, pos2: "OM", note2: 2, pos3: "", note3: null, lock: "Keine" },
+  { id: "p11", name: "David Neumann", nominated: true, pos1: "MS", note1: 1, pos2: "", note2: null, pos3: "", note3: null, lock: "MS" },
+  { id: "p12", name: "Max Zimmermann", nominated: true, pos1: "MS", note1: 2, pos2: "OM", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p13", name: "Tom Braun", nominated: true, pos1: "IV", note1: 3, pos2: "RV", note2: 3, pos3: "", note3: null, lock: "Keine" },
+  { id: "p14", name: "Jan Richter", nominated: true, pos1: "TW", note1: 4, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" },
+  { id: "p15", name: "Luis Wolf", nominated: false, pos1: "RA", note1: 4, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" },
+];
+
+/* ================================================================== */
+/*  State                                                               */
+/* ================================================================== */
+
+let state = {
+  tab: "spieler",
+  players: loadPlayers(),
+  formation: Object.keys(FORMATIONS)[0],
+};
+
+function loadPlayers() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(SAMPLE_PLAYERS));
+}
+
+function savePlayers() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.players));
+}
+
+function uid() {
+  return "id-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+/* ================================================================== */
+/*  Hilfsfunktionen                                                     */
+/* ================================================================== */
+
+function effectiveNote(note) {
+  return note === null || note === undefined || note === "" ? 6 : Number(note);
+}
+
+function declaredPositions(player) {
+  const arr = [];
+  if (player.pos1) arr.push({ pos: player.pos1, note: effectiveNote(player.note1) });
+  if (player.pos2) arr.push({ pos: player.pos2, note: effectiveNote(player.note2) });
+  if (player.pos3) arr.push({ pos: player.pos3, note: effectiveNote(player.note3) });
+  return arr;
+}
+
+function eligiblePositions(player) {
+  const all = declaredPositions(player);
+  if (player.lock && player.lock !== "Keine") return all.filter((p) => p.pos === player.lock);
+  return all;
+}
+
+function bestNote(player) {
+  const all = declaredPositions(player);
+  if (all.length === 0) return 6;
+  return Math.min(...all.map((p) => p.note));
+}
+
+function isPureDef(player) {
+  const pos = declaredPositions(player).map((p) => p.pos);
+  return pos.length > 0 && pos.every((p) => DEF_POS.includes(p));
+}
+
+function isPureOff(player) {
+  const pos = declaredPositions(player).map((p) => p.pos);
+  return pos.length > 0 && pos.every((p) => OFF_POS.includes(p));
+}
+
+function findPlayer(id) {
+  return state.players.find((p) => p.id === id);
+}
+
+/* Greedy-Zuordnungs-Algorithmus: sortiert alle möglichen (Spieler, Position, Note)-
+   Kombinationen aufsteigend nach Note und vergibt sie der Reihe nach, solange Spieler
+   und Slot noch frei sind. Effizient (O(n log n)), bleibt auch bei vielen Spielern flüssig. */
+function computeLineup(players, formationKey) {
+  const slotList = FORMATIONS[formationKey];
+  const nominated = players.filter((p) => p.nominated);
+
+  const remainingSlots = {};
+  slotList.forEach((pos) => (remainingSlots[pos] = (remainingSlots[pos] || 0) + 1));
+
+  const candidates = [];
+  nominated.forEach((player) => {
+    eligiblePositions(player).forEach((e) => {
+      if (slotList.includes(e.pos)) candidates.push({ playerId: player.id, pos: e.pos, note: e.note });
+    });
+  });
+  candidates.sort((a, b) => a.note - b.note);
+
+  const usedPlayers = new Set();
+  const assignment = {};
+  POSITIONS.forEach((p) => (assignment[p] = []));
+
+  candidates.forEach((c) => {
+    if (usedPlayers.has(c.playerId)) return;
+    if ((remainingSlots[c.pos] || 0) <= 0) return;
+    assignment[c.pos].push({ playerId: c.playerId, note: c.note, fachfremd: false, empty: false });
+    remainingSlots[c.pos] -= 1;
+    usedPlayers.add(c.playerId);
+  });
+
+  let leftover = nominated.filter((p) => !usedPlayers.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
+
+  Object.keys(remainingSlots).forEach((pos) => {
+    while (remainingSlots[pos] > 0) {
+      if (leftover.length === 0) {
+        assignment[pos].push({ playerId: null, note: null, fachfremd: false, empty: true });
+        remainingSlots[pos] -= 1;
+        continue;
+      }
+      const player = leftover.shift();
+      assignment[pos].push({ playerId: player.id, note: bestNote(player), fachfremd: true, empty: false });
+      usedPlayers.add(player.id);
+      remainingSlots[pos] -= 1;
+    }
+  });
+
+  const rest = nominated.filter((p) => !usedPlayers.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
+  const defPure = rest.filter(isPureDef).slice(0, 2);
+  const offPure = rest.filter(isPureOff).slice(0, 2);
+  const reservedIds = new Set([...defPure, ...offPure].map((p) => p.id));
+  const flexPool = rest.filter((p) => !reservedIds.has(p.id));
+  const flexNeeded = 6 - (defPure.length + offPure.length);
+  const flexPicks = flexPool.slice(0, Math.max(0, flexNeeded));
+
+  const benchEntries = [
+    ...defPure.map((p) => ({ player: p, kategorie: "Defensiv" })),
+    ...offPure.map((p) => ({ player: p, kategorie: "Offensiv" })),
+    ...flexPicks.map((p) => ({ player: p, kategorie: "Flex" })),
+  ];
+  while (benchEntries.length < 6) benchEntries.push(null);
+
+  return { assignment, bench: benchEntries };
+}
+
+/* ================================================================== */
+/*  Icons (inline SVG)                                                  */
+/* ================================================================== */
+
+const ICONS = {
+  plus: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  trash: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+  download: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  upload: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+  alert: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  users: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  shield: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  list: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5H6"/><path d="M16 12H6"/><path d="M16 19H6"/><circle cx="20" cy="5" r="1"/><circle cx="20" cy="12" r="1"/><circle cx="20" cy="19" r="1"/></svg>',
+};
+
+/* ================================================================== */
+/*  Rendering                                                           */
+/* ================================================================== */
+
+function render() {
+  const app = document.getElementById("app");
+  const nominatedCount = state.players.filter((p) => p.nominated).length;
+
+  app.innerHTML = `
+    <div class="min-h-screen bg-neutral-100 text-neutral-900 flex flex-col">
+      <header class="bg-neutral-900 text-white sticky top-0 z-20 shadow-lg shadow-black/20 border-b-4 border-red-600">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
+          <div class="w-12 h-12 rounded-full border-2 border-dashed border-red-500/70 flex items-center justify-center shrink-0 bg-neutral-800 text-red-500">
+            ${ICONS.shield}
+          </div>
+          <div class="min-w-0">
+            <h1 class="text-lg sm:text-xl font-extrabold tracking-tight truncate">
+              TuS Diedesfeld <span class="text-red-500">–</span> Aufstellungs-Planer
+            </h1>
+            <p class="text-[11px] sm:text-xs text-neutral-400 uppercase tracking-widest">Kaderplanung &amp; Aufstellungs-Empfehlung</p>
+          </div>
+        </div>
+        <nav class="max-w-6xl mx-auto px-4 flex gap-1">
+          <button data-action="switch-tab" data-tab="spieler" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-md transition-colors ${state.tab === "spieler" ? "bg-neutral-100 text-neutral-900" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}">
+            ${ICONS.users} Spieler-Datenbank
+          </button>
+          <button data-action="switch-tab" data-tab="aufstellung" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-md transition-colors ${state.tab === "aufstellung" ? "bg-neutral-100 text-neutral-900" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}">
+            ${ICONS.list} Aufstellungs-Empfehlung
+          </button>
+        </nav>
+      </header>
+      <main class="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-4 py-5">
+        ${state.tab === "spieler" ? renderSpielerTab(nominatedCount) : renderAufstellungTab(nominatedCount)}
+      </main>
+      <footer class="text-center text-[11px] text-neutral-400 py-4">
+        TuS Diedesfeld · Aufstellungs-Planer · Daten werden lokal in deinem Browser gespeichert
+      </footer>
+    </div>
+  `;
+
+  attachHandlers();
+}
+
+function selectHtml(value, options, placeholder, extraAttrs) {
+  const opts = [];
+  if (placeholder !== undefined) opts.push(`<option value="">${placeholder}</option>`);
+  options.forEach((o) => opts.push(`<option value="${o.value}" ${String(value) === String(o.value) ? "selected" : ""}>${o.label}</option>`));
+  return `<select ${extraAttrs} class="w-full bg-white border border-neutral-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">${opts.join("")}</select>`;
+}
+
+function renderSpielerTab(nominatedCount) {
+  const posOptions = POSITIONS.map((p) => ({ value: p, label: `${p} – ${POS_LABEL[p]}` }));
+  const noteOptions = NOTEN.map((n) => ({ value: n, label: n === 1 ? "1 (beste)" : n === 6 ? "6 (schlecht.)" : String(n) }));
+
+  const rows = state.players.map((p, idx) => {
+    const lockOptions = [p.pos1, p.pos2, p.pos3].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).map((pos) => ({ value: pos, label: pos }));
+    return `
+      <tr class="${idx % 2 === 0 ? "bg-white" : "bg-neutral-50"}">
+        <td class="px-3 py-2">
+          <input type="text" value="${escapeAttr(p.name)}" data-field="name" data-id="${p.id}" placeholder="Name eingeben"
+            class="w-full border border-neutral-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500" />
+        </td>
+        <td class="px-3 py-2 text-center">
+          <input type="checkbox" ${p.nominated ? "checked" : ""} data-field="nominated" data-id="${p.id}" class="w-4 h-4 accent-red-600 cursor-pointer" />
+        </td>
+        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.pos1, posOptions, "– wählen –", `data-field="pos1" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 min-w-[110px]">${selectHtml(p.note1 ?? "", noteOptions, "–", `data-field="note1" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.pos2, posOptions, "– optional –", `data-field="pos2" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 min-w-[110px]">${selectHtml(p.note2 ?? "", noteOptions, "–", `data-field="note2" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.pos3, posOptions, "– optional –", `data-field="pos3" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 min-w-[110px]">${selectHtml(p.note3 ?? "", noteOptions, "–", `data-field="note3" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.lock || "Keine", [{ value: "Keine", label: "Keine" }, ...lockOptions], undefined, `data-field="lock" data-id="${p.id}"`)}</td>
+        <td class="px-3 py-2 text-center">
+          <button data-action="delete-player" data-id="${p.id}" title="Spieler löschen" class="text-neutral-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50">${ICONS.trash}</button>
+        </td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <div>
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-neutral-900">Spieler-Datenbank</h2>
+          <p class="text-xs text-neutral-500">${state.players.length} Spieler erfasst · <span class="font-semibold text-red-600">${nominatedCount} nominiert</span> · Noten: 1 = beste, 6 = schlechteste</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button data-action="add-player" class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">${ICONS.plus} Spieler hinzufügen</button>
+          <button data-action="export-data" class="flex items-center gap-1.5 bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">${ICONS.download} Daten exportieren</button>
+          <button data-action="import-trigger" class="flex items-center gap-1.5 bg-white hover:bg-neutral-50 text-neutral-900 border border-neutral-300 text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">${ICONS.upload} Daten importieren</button>
+          <input type="file" accept="application/json" id="import-file-input" class="hidden" />
+        </div>
+      </div>
+      <div class="overflow-x-auto rounded-lg border border-neutral-200 bg-white shadow-sm">
+        <table class="min-w-[980px] w-full text-sm">
+          <thead>
+            <tr class="bg-neutral-900 text-white text-xs uppercase tracking-wide">
+              <th class="px-3 py-2.5 text-left rounded-tl-lg">Name</th>
+              <th class="px-3 py-2.5 text-center">Nominiert</th>
+              <th class="px-3 py-2.5 text-left">Position 1</th>
+              <th class="px-3 py-2.5 text-left">Note 1</th>
+              <th class="px-3 py-2.5 text-left">Position 2</th>
+              <th class="px-3 py-2.5 text-left">Note 2</th>
+              <th class="px-3 py-2.5 text-left">Position 3</th>
+              <th class="px-3 py-2.5 text-left">Note 3</th>
+              <th class="px-3 py-2.5 text-left">Positions-Lock</th>
+              <th class="px-3 py-2.5 text-center rounded-tr-lg">Aktion</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><td colspan="10" class="px-3 py-8 text-center text-neutral-400">Noch keine Spieler erfasst. Klicke auf „Spieler hinzufügen".</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderAufstellungTab(nominatedCount) {
+  const formationOptions = Object.keys(FORMATIONS).map((f) => `<option value="${f}" ${f === state.formation ? "selected" : ""}>${f}</option>`).join("");
+
+  if (nominatedCount === 0) {
+    return `
+      <div>
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div><h2 class="text-lg font-bold text-neutral-900">Aufstellungs-Empfehlung</h2><p class="text-xs text-neutral-500">0 Spieler nominiert</p></div>
+          <div class="w-full sm:w-64">
+            <label class="text-xs font-semibold text-neutral-600 mb-1 block">Formation</label>
+            <select data-field="formation" class="w-full bg-white border border-neutral-300 rounded-md px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">${formationOptions}</select>
+          </div>
+        </div>
+        <div class="bg-white border border-neutral-200 rounded-lg p-8 text-center text-neutral-400">
+          Keine nominierten Spieler vorhanden. Nominiere Spieler im Tab „Spieler-Datenbank".
+        </div>
+      </div>`;
+  }
+
+  const lineup = computeLineup(state.players, state.formation);
+
+  const queues = {};
+  POSITIONS.forEach((p) => (queues[p] = [...lineup.assignment[p]]));
+
+  const layout = FORMATION_LAYOUT[state.formation];
+  const warnings = [];
+  let emptyCount = 0;
+
+  const linesHtml = layout.map((row) => {
+    const cards = row.map((pos) => {
+      const entry = queues[pos].shift();
+      if (!entry) return "";
+      if (entry.empty) {
+        emptyCount++;
+        return `
+          <div class="w-24 sm:w-28 rounded-lg px-2 py-2 text-center shadow-md border-2 bg-white/20 border-dashed border-white/60 text-white/80">
+            <div class="text-[10px] font-bold uppercase tracking-wide text-red-200">${pos}</div>
+            <div class="text-xs font-semibold truncate">Unbesetzt</div>
+          </div>`;
+      }
+      const pl = findPlayer(entry.playerId);
+      if (entry.fachfremd) warnings.push(`${pl?.name || "Unbekannt"} spielt fachfremd auf ${pos}`);
+      return `
+        <div class="w-24 sm:w-28 rounded-lg px-2 py-2 text-center shadow-md border-2 ${entry.fachfremd ? "bg-amber-400 border-amber-600 text-neutral-900" : "bg-white border-neutral-900 text-neutral-900"}">
+          <div class="text-[10px] font-bold uppercase tracking-wide text-red-600">${pos}</div>
+          <div class="text-xs font-semibold truncate">${escapeHtml(pl?.name || "?")}</div>
+          <div class="text-[10px] text-neutral-500">Note ${entry.note}${entry.fachfremd ? " ⚠" : ""}</div>
+        </div>`;
+    }).join("");
+    return `<div class="flex flex-wrap justify-center gap-2 sm:gap-3">${cards}</div>`;
+  }).join("");
+
+  const benchHtml = lineup.bench.map((entry) => {
+    if (!entry) return `<div class="rounded-lg px-3 py-3 text-center border shadow-sm bg-neutral-100 border-dashed border-neutral-300"><span class="text-[11px] text-neutral-400">Unbesetzt</span></div>`;
+    const posList = declaredPositions(entry.player).map((d) => d.pos).join(" / ") || "–";
+    const badgeClass = entry.kategorie === "Defensiv" ? "bg-neutral-900 text-white" : entry.kategorie === "Offensiv" ? "bg-red-600 text-white" : "bg-neutral-300 text-neutral-800";
+    return `
+      <div class="rounded-lg px-3 py-3 text-center border shadow-sm bg-white border-neutral-200">
+        <div class="text-xs font-semibold text-neutral-900 truncate">${escapeHtml(entry.player.name)}</div>
+        <div class="text-[10px] text-neutral-500 mt-0.5">${posList}</div>
+        <span class="inline-block mt-1 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${badgeClass}">${entry.kategorie}</span>
+      </div>`;
+  }).join("");
+
+  const emptyWarningHtml = emptyCount > 0 ? `
+    <div class="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2.5">
+      ${ICONS.alert}
+      <span>${emptyCount} Position(en) konnten nicht besetzt werden – es sind nicht genug nominierte Spieler vorhanden.</span>
+    </div>` : "";
+
+  const fachfremdWarningHtml = warnings.length > 0 ? `
+    <div class="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-300 text-amber-800 text-sm rounded-md px-3 py-2.5">
+      ${ICONS.alert}
+      <div>
+        <p class="font-semibold mb-1">Position(en) fachfremd besetzt:</p>
+        <ul class="list-disc list-inside space-y-0.5">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
+      </div>
+    </div>` : "";
+
+  return `
+    <div>
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div><h2 class="text-lg font-bold text-neutral-900">Aufstellungs-Empfehlung</h2><p class="text-xs text-neutral-500">${nominatedCount} Spieler nominiert</p></div>
+        <div class="w-full sm:w-64">
+          <label class="text-xs font-semibold text-neutral-600 mb-1 block">Formation</label>
+          <select data-field="formation" class="w-full bg-white border border-neutral-300 rounded-md px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">${formationOptions}</select>
+        </div>
+      </div>
+      ${emptyWarningHtml}
+      ${fachfremdWarningHtml}
+      <div class="rounded-xl bg-gradient-to-b from-green-700 to-green-800 border-4 border-white shadow-lg p-4 sm:p-6 mb-6">
+        <div class="flex flex-col gap-4">${linesHtml}</div>
+      </div>
+      <div>
+        <h3 class="text-sm font-bold text-neutral-900 mb-2 flex items-center gap-1.5">${ICONS.users} Auswechselbank</h3>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">${benchHtml}</div>
+      </div>
+    </div>`;
+}
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+
+/* ================================================================== */
+/*  Event-Handling                                                      */
+/* ================================================================== */
+
+function updatePlayerField(id, field, value, rerender) {
+  const idx = state.players.findIndex((p) => p.id === id);
+  if (idx < 0) return;
+  state.players[idx] = { ...state.players[idx], [field]: value };
+  if (["pos1", "pos2", "pos3"].includes(field)) {
+    const pl = state.players[idx];
+    const valid = [pl.pos1, pl.pos2, pl.pos3].filter(Boolean);
+    if (pl.lock !== "Keine" && !valid.includes(pl.lock)) pl.lock = "Keine";
+  }
+  savePlayers();
+  if (rerender) render();
+}
+
+function attachHandlers() {
+  const app = document.getElementById("app");
+
+  app.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+
+    if (action === "switch-tab") {
+      state.tab = btn.dataset.tab;
+      render();
+    } else if (action === "add-player") {
+      state.players.push({ id: uid(), name: "", nominated: false, pos1: "", note1: null, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" });
+      savePlayers();
+      render();
+    } else if (action === "delete-player") {
+      state.players = state.players.filter((p) => p.id !== btn.dataset.id);
+      savePlayers();
+      render();
+    } else if (action === "export-data") {
+      const blob = new Blob([JSON.stringify(state.players, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "tus-diedesfeld-spieler.json";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } else if (action === "import-trigger") {
+      document.getElementById("import-file-input").click();
+    }
+  }, true);
+
+  app.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.id === "import-file-input") {
+      const file = t.files && t.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const data = JSON.parse(evt.target.result);
+          if (Array.isArray(data)) {
+            state.players = data;
+            savePlayers();
+            render();
+          } else {
+            alert("Ungültiges Dateiformat: Es wird ein JSON-Array erwartet.");
+          }
+        } catch (err) {
+          alert("Die Datei konnte nicht gelesen werden: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      t.value = "";
+      return;
+    }
+    if (t.dataset.field === "formation") {
+      state.formation = t.value;
+      render();
+      return;
+    }
+    if (!t.dataset.field || !t.dataset.id) return;
+    const field = t.dataset.field;
+    const id = t.dataset.id;
+    if (field === "nominated") {
+      updatePlayerField(id, field, t.checked, true);
+    } else if (field === "note1" || field === "note2" || field === "note3") {
+      updatePlayerField(id, field, t.value === "" ? null : Number(t.value), true);
+    } else {
+      updatePlayerField(id, field, t.value, true);
+    }
+  });
+
+  app.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.dataset.field === "name" && t.dataset.id) {
+      updatePlayerField(t.dataset.id, "name", t.value, false);
+    }
+  });
+}
+
+render();
+</script>
+</body>
+</html>
