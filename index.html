@@ -4,58 +4,87 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TuS Diedesfeld – Aufstellungs-Planer</title>
-<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Statisch vorkompiliertes Tailwind CSS (keine Laufzeit-Kompilierung / kein MutationObserver -> stabiler & schneller als die Play-CDN-Variante) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" />
+
+<!-- React + ReactDOM -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+<!-- Babel, damit der Browser JSX direkt versteht (läuft nur einmal beim Laden der Seite) -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  ::-webkit-scrollbar { height: 8px; width: 8px; }
-  ::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 4px; }
+  /* Kleine Ergänzungen, die im statischen Tailwind-Build fehlen */
+  .accent-red { accent-color: #dc2626; }
 </style>
 </head>
-<body class="min-h-screen bg-neutral-100 text-neutral-900">
+<body>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;">
+    Lade App …
+  </div>
+</div>
 
-<div id="app"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
 
-<script>
-/* ================================================================== */
-/*  Konstanten                                                         */
-/* ================================================================== */
+/* ------------------------------------------------------------------ */
+/*  Icons (einfache Inline-SVGs, keine externe Icon-Bibliothek nötig)  */
+/* ------------------------------------------------------------------ */
+
+function Icon({ children, className = "w-4 h-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {children}
+    </svg>
+  );
+}
+const IconPlus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></Icon>;
+const IconTrash = (p) => <Icon {...p}><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></Icon>;
+const IconDownload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>;
+const IconUpload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>;
+const IconAlert = (p) => <Icon {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></Icon>;
+const IconUsers = (p) => <Icon {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
+const IconListChecks = (p) => <Icon {...p}><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></Icon>;
+const IconShield = (p) => <Icon {...p}><path d="M20 13c0 5-3.5 7.5-7.5 8.5-.5.1-1 .1-1 0C6.5 20.5 3 18 3 13V6l9-4 9 4z"/></Icon>;
+
+/* ------------------------------------------------------------------ */
+/*  Konstanten                                                        */
+/* ------------------------------------------------------------------ */
 
 const POSITIONS = ["TW", "IV", "LV", "RV", "DM", "OM", "LA", "RA", "MS"];
 const NOTEN = [1, 2, 3, 4, 5, 6];
+
+const FORMATIONS = {
+  "4-4-2 Flach": ["TW", "LV", "IV", "IV", "RV", "DM", "DM", "LA", "RA", "MS", "MS"],
+  "4-4-2 Raute": ["TW", "LV", "IV", "IV", "RV", "DM", "LA", "RA", "OM", "MS", "MS"],
+  "4-3-3": ["TW", "LV", "IV", "IV", "RV", "DM", "OM", "OM", "LA", "RA", "MS"],
+  "4-2-3-1": ["TW", "LV", "IV", "IV", "RV", "DM", "DM", "LA", "RA", "OM", "MS"],
+  "3-5-2": ["TW", "LV", "IV", "RV", "DM", "DM", "OM", "LA", "RA", "MS", "MS"],
+  "3-4-3": ["TW", "LV", "IV", "RV", "DM", "DM", "LA", "LA", "RA", "RA", "MS"],
+  "4-1-4-1": ["TW", "LV", "IV", "IV", "RV", "DM", "LA", "RA", "OM", "OM", "MS"],
+  "5-3-2": ["TW", "IV", "IV", "IV", "LV", "RV", "DM", "DM", "OM", "MS", "MS"],
+};
+
+const LINES = [
+  { label: "Sturm", positions: ["MS"] },
+  { label: "Offensive", positions: ["LA", "OM", "RA"] },
+  { label: "Defensives Mittelfeld", positions: ["DM"] },
+  { label: "Abwehr", positions: ["LV", "IV", "RV"] },
+  { label: "Tor", positions: ["TW"] },
+];
+
+const DEF_POS = ["IV", "LV", "RV", "DM"];
+const OFF_POS = ["OM", "LA", "RA", "MS"];
 
 const POS_LABEL = {
   TW: "Torwart", IV: "Innenverteidiger", LV: "Linksverteidiger", RV: "Rechtsverteidiger",
   DM: "Def. Mittelfeld", OM: "Off. Mittelfeld", LA: "Linke Außenbahn", RA: "Rechte Außenbahn", MS: "Mittelstürmer",
 };
-
-// Slot-Listen (für den Zuordnungs-Algorithmus): welche Positionen braucht die Formation insgesamt
-const FORMATIONS = {
-  "4-4-2 Flach":   ["TW","LV","IV","IV","RV","DM","DM","LA","RA","MS","MS"],
-  "4-4-2 Raute":   ["TW","LV","IV","IV","RV","DM","LA","RA","OM","MS","MS"],
-  "4-3-3":         ["TW","LV","IV","IV","RV","DM","OM","OM","LA","RA","MS"],
-  "4-2-3-1":       ["TW","LV","IV","IV","RV","DM","DM","LA","RA","OM","MS"],
-  "3-5-2":         ["TW","LV","IV","RV","DM","DM","OM","LA","RA","MS","MS"],
-  "3-4-3":         ["TW","LV","IV","RV","DM","DM","LA","LA","RA","RA","MS"],
-  "4-1-4-1":       ["TW","LV","IV","IV","RV","DM","LA","RA","OM","OM","MS"],
-  "5-3-2":         ["TW","IV","IV","IV","LV","RV","DM","DM","OM","MS","MS"],
-};
-
-// Taktische Zeilen (Angriff -> Tor) für eine realistische, formationstreue Darstellung.
-// Jede Positionsangabe wird der Reihe nach aus der jeweiligen Positions-Warteschlange bedient,
-// damit z.B. beim 3-4-3 der eine LA-Slot im Mittelfeld und der andere im Sturm auftaucht.
-const FORMATION_LAYOUT = {
-  "4-4-2 Flach":  [["MS","MS"], ["LA","DM","DM","RA"], ["LV","IV","IV","RV"], ["TW"]],
-  "4-4-2 Raute":  [["MS","MS"], ["OM"], ["LA","RA"], ["DM"], ["LV","IV","IV","RV"], ["TW"]],
-  "4-3-3":        [["LA","MS","RA"], ["OM","OM"], ["DM"], ["LV","IV","IV","RV"], ["TW"]],
-  "4-2-3-1":      [["MS"], ["LA","OM","RA"], ["DM","DM"], ["LV","IV","IV","RV"], ["TW"]],
-  "3-5-2":        [["MS","MS"], ["LA","DM","OM","DM","RA"], ["LV","IV","RV"], ["TW"]],
-  "3-4-3":        [["LA","MS","RA"], ["LA","DM","DM","RA"], ["LV","IV","RV"], ["TW"]],
-  "4-1-4-1":      [["MS"], ["LA","OM","OM","RA"], ["DM"], ["LV","IV","IV","RV"], ["TW"]],
-  "5-3-2":        [["MS","MS"], ["DM","OM","DM"], ["LV","IV","IV","IV","RV"], ["TW"]],
-};
-
-const DEF_POS = ["IV", "LV", "RV", "DM"];
-const OFF_POS = ["OM", "LA", "RA", "MS"];
 
 const STORAGE_KEY = "tus-diedesfeld-spieler-v1";
 
@@ -77,40 +106,45 @@ const SAMPLE_PLAYERS = [
   { id: "p15", name: "Luis Wolf", nominated: false, pos1: "RA", note1: 4, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" },
 ];
 
-/* ================================================================== */
-/*  State                                                               */
-/* ================================================================== */
-
-let state = {
-  tab: "spieler",
-  players: loadPlayers(),
-  formation: Object.keys(FORMATIONS)[0],
-};
-
-function loadPlayers() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return JSON.parse(JSON.stringify(SAMPLE_PLAYERS));
-}
-
-function savePlayers() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.players));
-}
+/* ------------------------------------------------------------------ */
+/*  Hilfsfunktionen                                                    */
+/* ------------------------------------------------------------------ */
 
 function uid() {
   return "id-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-/* ================================================================== */
-/*  Hilfsfunktionen                                                     */
-/* ================================================================== */
+/* Macht importierte / gespeicherte Daten robust: fehlende oder kaputte
+   Felder werden durch sichere Standardwerte ersetzt, damit die App bei
+   unvollständigen/älteren JSON-Dateien nicht abstürzt. */
+function normalizePlayer(raw) {
+  raw = raw && typeof raw === "object" ? raw : {};
+  const safeStr = (v) => (typeof v === "string" ? v : "");
+  const safePos = (v) => (POSITIONS.includes(v) ? v : "");
+  const safeNote = (v) => {
+    const n = Number(v);
+    return NOTEN.includes(n) ? n : null;
+  };
+  const pos1 = safePos(raw.pos1);
+  const pos2 = safePos(raw.pos2);
+  const pos3 = safePos(raw.pos3);
+  const validLocks = [pos1, pos2, pos3].filter(Boolean);
+  let lock = safeStr(raw.lock) || "Keine";
+  if (lock !== "Keine" && !validLocks.includes(lock)) lock = "Keine";
+  return {
+    id: safeStr(raw.id) || uid(),
+    name: safeStr(raw.name),
+    nominated: !!raw.nominated,
+    pos1, note1: safeNote(raw.note1),
+    pos2, note2: safeNote(raw.note2),
+    pos3, note3: safeNote(raw.note3),
+    lock,
+  };
+}
 
 function effectiveNote(note) {
   return note === null || note === undefined || note === "" ? 6 : Number(note);
 }
-
 function declaredPositions(player) {
   const arr = [];
   if (player.pos1) arr.push({ pos: player.pos1, note: effectiveNote(player.note1) });
@@ -118,38 +152,29 @@ function declaredPositions(player) {
   if (player.pos3) arr.push({ pos: player.pos3, note: effectiveNote(player.note3) });
   return arr;
 }
-
 function eligiblePositions(player) {
   const all = declaredPositions(player);
-  if (player.lock && player.lock !== "Keine") return all.filter((p) => p.pos === player.lock);
+  if (player.lock && player.lock !== "Keine") {
+    return all.filter((p) => p.pos === player.lock);
+  }
   return all;
 }
-
 function bestNote(player) {
   const all = declaredPositions(player);
   if (all.length === 0) return 6;
   return Math.min(...all.map((p) => p.note));
 }
-
 function isPureDef(player) {
   const pos = declaredPositions(player).map((p) => p.pos);
   return pos.length > 0 && pos.every((p) => DEF_POS.includes(p));
 }
-
 function isPureOff(player) {
   const pos = declaredPositions(player).map((p) => p.pos);
   return pos.length > 0 && pos.every((p) => OFF_POS.includes(p));
 }
 
-function findPlayer(id) {
-  return state.players.find((p) => p.id === id);
-}
-
-/* Greedy-Zuordnungs-Algorithmus: sortiert alle möglichen (Spieler, Position, Note)-
-   Kombinationen aufsteigend nach Note und vergibt sie der Reihe nach, solange Spieler
-   und Slot noch frei sind. Effizient (O(n log n)), bleibt auch bei vielen Spielern flüssig. */
 function computeLineup(players, formationKey) {
-  const slotList = FORMATIONS[formationKey];
+  const slotList = FORMATIONS[formationKey] || FORMATIONS[Object.keys(FORMATIONS)[0]];
   const nominated = players.filter((p) => p.nominated);
 
   const remainingSlots = {};
@@ -158,7 +183,9 @@ function computeLineup(players, formationKey) {
   const candidates = [];
   nominated.forEach((player) => {
     eligiblePositions(player).forEach((e) => {
-      if (slotList.includes(e.pos)) candidates.push({ playerId: player.id, pos: e.pos, note: e.note });
+      if (slotList.includes(e.pos)) {
+        candidates.push({ playerId: player.id, pos: e.pos, note: e.note });
+      }
     });
   });
   candidates.sort((a, b) => a.note - b.note);
@@ -178,7 +205,9 @@ function computeLineup(players, formationKey) {
   let leftover = nominated.filter((p) => !usedPlayers.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
 
   Object.keys(remainingSlots).forEach((pos) => {
-    while (remainingSlots[pos] > 0) {
+    let guard = 0;
+    while (remainingSlots[pos] > 0 && guard < 1000) {
+      guard += 1;
       if (leftover.length === 0) {
         assignment[pos].push({ playerId: null, note: null, fachfremd: false, empty: true });
         remainingSlots[pos] -= 1;
@@ -192,6 +221,7 @@ function computeLineup(players, formationKey) {
   });
 
   const rest = nominated.filter((p) => !usedPlayers.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
+
   const defPure = rest.filter(isPureDef).slice(0, 2);
   const offPure = rest.filter(isPureOff).slice(0, 2);
   const reservedIds = new Set([...defPure, ...offPure].map((p) => p.id));
@@ -209,340 +239,412 @@ function computeLineup(players, formationKey) {
   return { assignment, bench: benchEntries };
 }
 
-/* ================================================================== */
-/*  Icons (inline SVG)                                                  */
-/* ================================================================== */
+/* ------------------------------------------------------------------ */
+/*  Fehlerschutz: fängt Laufzeitfehler ab, statt die Seite abstürzen   */
+/*  zu lassen (weiße Seite). Zeigt stattdessen einen Reset-Button.     */
+/* ------------------------------------------------------------------ */
 
-const ICONS = {
-  plus: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-  trash: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
-  download: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
-  upload: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
-  alert: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-  users: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-  shield: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
-  list: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5H6"/><path d="M16 12H6"/><path d="M16 19H6"/><circle cx="20" cy="5" r="1"/><circle cx="20" cy="12" r="1"/><circle cx="20" cy="19" r="1"/></svg>',
-};
-
-/* ================================================================== */
-/*  Rendering                                                           */
-/* ================================================================== */
-
-function render() {
-  const app = document.getElementById("app");
-  const nominatedCount = state.players.filter((p) => p.nominated).length;
-
-  app.innerHTML = `
-    <div class="min-h-screen bg-neutral-100 text-neutral-900 flex flex-col">
-      <header class="bg-neutral-900 text-white sticky top-0 z-20 shadow-lg shadow-black/20 border-b-4 border-red-600">
-        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
-          <div class="w-12 h-12 rounded-full border-2 border-dashed border-red-500/70 flex items-center justify-center shrink-0 bg-neutral-800 text-red-500">
-            ${ICONS.shield}
-          </div>
-          <div class="min-w-0">
-            <h1 class="text-lg sm:text-xl font-extrabold tracking-tight truncate">
-              TuS Diedesfeld <span class="text-red-500">–</span> Aufstellungs-Planer
-            </h1>
-            <p class="text-[11px] sm:text-xs text-neutral-400 uppercase tracking-widest">Kaderplanung &amp; Aufstellungs-Empfehlung</p>
-          </div>
-        </div>
-        <nav class="max-w-6xl mx-auto px-4 flex gap-1">
-          <button data-action="switch-tab" data-tab="spieler" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-md transition-colors ${state.tab === "spieler" ? "bg-neutral-100 text-neutral-900" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}">
-            ${ICONS.users} Spieler-Datenbank
-          </button>
-          <button data-action="switch-tab" data-tab="aufstellung" class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-md transition-colors ${state.tab === "aufstellung" ? "bg-neutral-100 text-neutral-900" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}">
-            ${ICONS.list} Aufstellungs-Empfehlung
-          </button>
-        </nav>
-      </header>
-      <main class="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-4 py-5">
-        ${state.tab === "spieler" ? renderSpielerTab(nominatedCount) : renderAufstellungTab(nominatedCount)}
-      </main>
-      <footer class="text-center text-[11px] text-neutral-400 py-4">
-        TuS Diedesfeld · Aufstellungs-Planer · Daten werden lokal in deinem Browser gespeichert
-      </footer>
-    </div>
-  `;
-
-  attachHandlers();
-}
-
-function selectHtml(value, options, placeholder, extraAttrs) {
-  const opts = [];
-  if (placeholder !== undefined) opts.push(`<option value="">${placeholder}</option>`);
-  options.forEach((o) => opts.push(`<option value="${o.value}" ${String(value) === String(o.value) ? "selected" : ""}>${o.label}</option>`));
-  return `<select ${extraAttrs} class="w-full bg-white border border-neutral-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">${opts.join("")}</select>`;
-}
-
-function renderSpielerTab(nominatedCount) {
-  const posOptions = POSITIONS.map((p) => ({ value: p, label: `${p} – ${POS_LABEL[p]}` }));
-  const noteOptions = NOTEN.map((n) => ({ value: n, label: n === 1 ? "1 (beste)" : n === 6 ? "6 (schlecht.)" : String(n) }));
-
-  const rows = state.players.map((p, idx) => {
-    const lockOptions = [p.pos1, p.pos2, p.pos3].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).map((pos) => ({ value: pos, label: pos }));
-    return `
-      <tr class="${idx % 2 === 0 ? "bg-white" : "bg-neutral-50"}">
-        <td class="px-3 py-2">
-          <input type="text" value="${escapeAttr(p.name)}" data-field="name" data-id="${p.id}" placeholder="Name eingeben"
-            class="w-full border border-neutral-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500" />
-        </td>
-        <td class="px-3 py-2 text-center">
-          <input type="checkbox" ${p.nominated ? "checked" : ""} data-field="nominated" data-id="${p.id}" class="w-4 h-4 accent-red-600 cursor-pointer" />
-        </td>
-        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.pos1, posOptions, "– wählen –", `data-field="pos1" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 min-w-[110px]">${selectHtml(p.note1 ?? "", noteOptions, "–", `data-field="note1" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.pos2, posOptions, "– optional –", `data-field="pos2" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 min-w-[110px]">${selectHtml(p.note2 ?? "", noteOptions, "–", `data-field="note2" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.pos3, posOptions, "– optional –", `data-field="pos3" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 min-w-[110px]">${selectHtml(p.note3 ?? "", noteOptions, "–", `data-field="note3" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 min-w-[130px]">${selectHtml(p.lock || "Keine", [{ value: "Keine", label: "Keine" }, ...lockOptions], undefined, `data-field="lock" data-id="${p.id}"`)}</td>
-        <td class="px-3 py-2 text-center">
-          <button data-action="delete-player" data-id="${p.id}" title="Spieler löschen" class="text-neutral-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50">${ICONS.trash}</button>
-        </td>
-      </tr>`;
-  }).join("");
-
-  return `
-    <div>
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div>
-          <h2 class="text-lg font-bold text-neutral-900">Spieler-Datenbank</h2>
-          <p class="text-xs text-neutral-500">${state.players.length} Spieler erfasst · <span class="font-semibold text-red-600">${nominatedCount} nominiert</span> · Noten: 1 = beste, 6 = schlechteste</p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <button data-action="add-player" class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">${ICONS.plus} Spieler hinzufügen</button>
-          <button data-action="export-data" class="flex items-center gap-1.5 bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">${ICONS.download} Daten exportieren</button>
-          <button data-action="import-trigger" class="flex items-center gap-1.5 bg-white hover:bg-neutral-50 text-neutral-900 border border-neutral-300 text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">${ICONS.upload} Daten importieren</button>
-          <input type="file" accept="application/json" id="import-file-input" class="hidden" />
-        </div>
-      </div>
-      <div class="overflow-x-auto rounded-lg border border-neutral-200 bg-white shadow-sm">
-        <table class="min-w-[980px] w-full text-sm">
-          <thead>
-            <tr class="bg-neutral-900 text-white text-xs uppercase tracking-wide">
-              <th class="px-3 py-2.5 text-left rounded-tl-lg">Name</th>
-              <th class="px-3 py-2.5 text-center">Nominiert</th>
-              <th class="px-3 py-2.5 text-left">Position 1</th>
-              <th class="px-3 py-2.5 text-left">Note 1</th>
-              <th class="px-3 py-2.5 text-left">Position 2</th>
-              <th class="px-3 py-2.5 text-left">Note 2</th>
-              <th class="px-3 py-2.5 text-left">Position 3</th>
-              <th class="px-3 py-2.5 text-left">Note 3</th>
-              <th class="px-3 py-2.5 text-left">Positions-Lock</th>
-              <th class="px-3 py-2.5 text-center rounded-tr-lg">Aktion</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows || `<tr><td colspan="10" class="px-3 py-8 text-center text-neutral-400">Noch keine Spieler erfasst. Klicke auf „Spieler hinzufügen".</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-}
-
-function renderAufstellungTab(nominatedCount) {
-  const formationOptions = Object.keys(FORMATIONS).map((f) => `<option value="${f}" ${f === state.formation ? "selected" : ""}>${f}</option>`).join("");
-
-  if (nominatedCount === 0) {
-    return `
-      <div>
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div><h2 class="text-lg font-bold text-neutral-900">Aufstellungs-Empfehlung</h2><p class="text-xs text-neutral-500">0 Spieler nominiert</p></div>
-          <div class="w-full sm:w-64">
-            <label class="text-xs font-semibold text-neutral-600 mb-1 block">Formation</label>
-            <select data-field="formation" class="w-full bg-white border border-neutral-300 rounded-md px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">${formationOptions}</select>
-          </div>
-        </div>
-        <div class="bg-white border border-neutral-200 rounded-lg p-8 text-center text-neutral-400">
-          Keine nominierten Spieler vorhanden. Nominiere Spieler im Tab „Spieler-Datenbank".
-        </div>
-      </div>`;
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
   }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.error("App-Fehler abgefangen:", error, info);
+  }
+  handleReset = () => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    window.location.reload();
+  };
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", textAlign: "center" }}>
+          <div style={{ maxWidth: "420px" }}>
+            <h1 style={{ fontSize: "20px", fontWeight: "bold", marginBottom: "8px" }}>Kurz gestolpert…</h1>
+            <p style={{ color: "#666", marginBottom: "20px" }}>
+              Beim Verarbeiten der Daten ist ein Fehler aufgetreten. Deine gespeicherten Daten könnten beschädigt
+              sein. Du kannst die App zurücksetzen und neu starten – exportiere vorher ggf. nochmal deine Daten
+              (falls noch als Download-Datei vorhanden, ist nichts verloren).
+            </p>
+            <button
+              onClick={this.handleReset}
+              style={{ background: "#dc2626", color: "white", padding: "10px 20px", borderRadius: "6px", border: "none", fontWeight: "600", cursor: "pointer" }}
+            >
+              App zurücksetzen &amp; neu laden
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
-  const lineup = computeLineup(state.players, state.formation);
+/* ------------------------------------------------------------------ */
+/*  Hauptkomponente                                                    */
+/* ------------------------------------------------------------------ */
 
-  const queues = {};
-  POSITIONS.forEach((p) => (queues[p] = [...lineup.assignment[p]]));
+function App() {
+  const [tab, setTab] = useState("spieler");
+  const [players, setPlayers] = useState([]);
+  const [formation, setFormation] = useState(Object.keys(FORMATIONS)[0]);
+  const fileInputRef = useRef(null);
 
-  const layout = FORMATION_LAYOUT[state.formation];
-  const warnings = [];
-  let emptyCount = 0;
-
-  const linesHtml = layout.map((row) => {
-    const cards = row.map((pos) => {
-      const entry = queues[pos].shift();
-      if (!entry) return "";
-      if (entry.empty) {
-        emptyCount++;
-        return `
-          <div class="w-24 sm:w-28 rounded-lg px-2 py-2 text-center shadow-md border-2 bg-white/20 border-dashed border-white/60 text-white/80">
-            <div class="text-[10px] font-bold uppercase tracking-wide text-red-200">${pos}</div>
-            <div class="text-xs font-semibold truncate">Unbesetzt</div>
-          </div>`;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setPlayers(parsed.map(normalizePlayer));
+        } else {
+          setPlayers(SAMPLE_PLAYERS);
+        }
+      } else {
+        setPlayers(SAMPLE_PLAYERS);
       }
-      const pl = findPlayer(entry.playerId);
-      if (entry.fachfremd) warnings.push(`${pl?.name || "Unbekannt"} spielt fachfremd auf ${pos}`);
-      return `
-        <div class="w-24 sm:w-28 rounded-lg px-2 py-2 text-center shadow-md border-2 ${entry.fachfremd ? "bg-amber-400 border-amber-600 text-neutral-900" : "bg-white border-neutral-900 text-neutral-900"}">
-          <div class="text-[10px] font-bold uppercase tracking-wide text-red-600">${pos}</div>
-          <div class="text-xs font-semibold truncate">${escapeHtml(pl?.name || "?")}</div>
-          <div class="text-[10px] text-neutral-500">Note ${entry.note}${entry.fachfremd ? " ⚠" : ""}</div>
-        </div>`;
-    }).join("");
-    return `<div class="flex flex-wrap justify-center gap-2 sm:gap-3">${cards}</div>`;
-  }).join("");
+    } catch (e) {
+      console.warn("Gespeicherte Daten konnten nicht gelesen werden, starte mit Beispieldaten.", e);
+      setPlayers(SAMPLE_PLAYERS);
+    }
+  }, []);
 
-  const benchHtml = lineup.bench.map((entry) => {
-    if (!entry) return `<div class="rounded-lg px-3 py-3 text-center border shadow-sm bg-neutral-100 border-dashed border-neutral-300"><span class="text-[11px] text-neutral-400">Unbesetzt</span></div>`;
-    const posList = declaredPositions(entry.player).map((d) => d.pos).join(" / ") || "–";
-    const badgeClass = entry.kategorie === "Defensiv" ? "bg-neutral-900 text-white" : entry.kategorie === "Offensiv" ? "bg-red-600 text-white" : "bg-neutral-300 text-neutral-800";
-    return `
-      <div class="rounded-lg px-3 py-3 text-center border shadow-sm bg-white border-neutral-200">
-        <div class="text-xs font-semibold text-neutral-900 truncate">${escapeHtml(entry.player.name)}</div>
-        <div class="text-[10px] text-neutral-500 mt-0.5">${posList}</div>
-        <span class="inline-block mt-1 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${badgeClass}">${entry.kategorie}</span>
-      </div>`;
-  }).join("");
+  // Entprellt gespeichert (statt bei jedem Tastendruck), das schont Leistung beim Tippen
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
+      } catch (e) {
+        console.warn("Speichern fehlgeschlagen:", e);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [players]);
 
-  const emptyWarningHtml = emptyCount > 0 ? `
-    <div class="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2.5">
-      ${ICONS.alert}
-      <span>${emptyCount} Position(en) konnten nicht besetzt werden – es sind nicht genug nominierte Spieler vorhanden.</span>
-    </div>` : "";
-
-  const fachfremdWarningHtml = warnings.length > 0 ? `
-    <div class="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-300 text-amber-800 text-sm rounded-md px-3 py-2.5">
-      ${ICONS.alert}
-      <div>
-        <p class="font-semibold mb-1">Position(en) fachfremd besetzt:</p>
-        <ul class="list-disc list-inside space-y-0.5">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>
-      </div>
-    </div>` : "";
-
-  return `
-    <div>
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div><h2 class="text-lg font-bold text-neutral-900">Aufstellungs-Empfehlung</h2><p class="text-xs text-neutral-500">${nominatedCount} Spieler nominiert</p></div>
-        <div class="w-full sm:w-64">
-          <label class="text-xs font-semibold text-neutral-600 mb-1 block">Formation</label>
-          <select data-field="formation" class="w-full bg-white border border-neutral-300 rounded-md px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">${formationOptions}</select>
-        </div>
-      </div>
-      ${emptyWarningHtml}
-      ${fachfremdWarningHtml}
-      <div class="rounded-xl bg-gradient-to-b from-green-700 to-green-800 border-4 border-white shadow-lg p-4 sm:p-6 mb-6">
-        <div class="flex flex-col gap-4">${linesHtml}</div>
-      </div>
-      <div>
-        <h3 class="text-sm font-bold text-neutral-900 mb-2 flex items-center gap-1.5">${ICONS.users} Auswechselbank</h3>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">${benchHtml}</div>
-      </div>
-    </div>`;
-}
-
-function escapeHtml(str) {
-  return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-function escapeAttr(str) { return escapeHtml(str); }
-
-/* ================================================================== */
-/*  Event-Handling                                                      */
-/* ================================================================== */
-
-function updatePlayerField(id, field, value, rerender) {
-  const idx = state.players.findIndex((p) => p.id === id);
-  if (idx < 0) return;
-  state.players[idx] = { ...state.players[idx], [field]: value };
-  if (["pos1", "pos2", "pos3"].includes(field)) {
-    const pl = state.players[idx];
-    const valid = [pl.pos1, pl.pos2, pl.pos3].filter(Boolean);
-    if (pl.lock !== "Keine" && !valid.includes(pl.lock)) pl.lock = "Keine";
+  function updatePlayer(id, field, value) {
+    setPlayers((prev) => prev.map((p) => {
+      if (p.id !== id) return p;
+      const updated = { ...p, [field]: value };
+      if (["pos1", "pos2", "pos3"].includes(field)) {
+        const valid = [updated.pos1, updated.pos2, updated.pos3].filter(Boolean);
+        if (updated.lock !== "Keine" && !valid.includes(updated.lock)) { updated.lock = "Keine"; }
+      }
+      return updated;
+    }));
   }
-  savePlayers();
-  if (rerender) render();
-}
 
-function attachHandlers() {
-  const app = document.getElementById("app");
+  function addPlayer() {
+    setPlayers((prev) => [...prev, {
+      id: uid(), name: "", nominated: false,
+      pos1: "", note1: null, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine",
+    }]);
+  }
 
-  app.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    const action = btn.dataset.action;
+  function deletePlayer(id) { setPlayers((prev) => prev.filter((p) => p.id !== id)); }
 
-    if (action === "switch-tab") {
-      state.tab = btn.dataset.tab;
-      render();
-    } else if (action === "add-player") {
-      state.players.push({ id: uid(), name: "", nominated: false, pos1: "", note1: null, pos2: "", note2: null, pos3: "", note3: null, lock: "Keine" });
-      savePlayers();
-      render();
-    } else if (action === "delete-player") {
-      state.players = state.players.filter((p) => p.id !== btn.dataset.id);
-      savePlayers();
-      render();
-    } else if (action === "export-data") {
-      const blob = new Blob([JSON.stringify(state.players, null, 2)], { type: "application/json" });
+  function exportData() {
+    try {
+      const blob = new Blob([JSON.stringify(players, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = "tus-diedesfeld-spieler.json";
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-    } else if (action === "import-trigger") {
-      document.getElementById("import-file-input").click();
+    } catch (e) {
+      alert("Export fehlgeschlagen: " + e.message);
     }
-  }, true);
+  }
 
-  app.addEventListener("change", (e) => {
-    const t = e.target;
-    if (t.id === "import-file-input") {
-      const file = t.files && t.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        try {
-          const data = JSON.parse(evt.target.result);
-          if (Array.isArray(data)) {
-            state.players = data;
-            savePlayers();
-            render();
-          } else {
-            alert("Ungültiges Dateiformat: Es wird ein JSON-Array erwartet.");
-          }
-        } catch (err) {
-          alert("Die Datei konnte nicht gelesen werden: " + err.message);
+  function importData(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = JSON.parse(evt.target.result);
+        if (Array.isArray(data)) {
+          setPlayers(data.map(normalizePlayer));
+        } else {
+          alert("Ungültiges Dateiformat: Es wird ein JSON-Array erwartet.");
         }
-      };
-      reader.readAsText(file);
-      t.value = "";
-      return;
-    }
-    if (t.dataset.field === "formation") {
-      state.formation = t.value;
-      render();
-      return;
-    }
-    if (!t.dataset.field || !t.dataset.id) return;
-    const field = t.dataset.field;
-    const id = t.dataset.id;
-    if (field === "nominated") {
-      updatePlayerField(id, field, t.checked, true);
-    } else if (field === "note1" || field === "note2" || field === "note3") {
-      updatePlayerField(id, field, t.value === "" ? null : Number(t.value), true);
-    } else {
-      updatePlayerField(id, field, t.value, true);
-    }
-  });
+      } catch (err) {
+        alert("Die Datei konnte nicht gelesen werden: " + err.message);
+      }
+    };
+    reader.onerror = () => alert("Die Datei konnte nicht gelesen werden.");
+    reader.readAsText(file);
+    e.target.value = "";
+  }
 
-  app.addEventListener("input", (e) => {
-    const t = e.target;
-    if (t.dataset.field === "name" && t.dataset.id) {
-      updatePlayerField(t.dataset.id, "name", t.value, false);
+  // Die (etwas aufwendigere) Aufstellungsberechnung läuft nur, wenn der
+  // entsprechende Tab auch wirklich sichtbar ist -> kein unnötiges Rechnen
+  // bei jedem Tastendruck in der Spieler-Datenbank.
+  const lineup = useMemo(() => {
+    if (tab !== "aufstellung") return { assignment: {}, bench: [] };
+    try {
+      return computeLineup(players, formation);
+    } catch (e) {
+      console.error("Fehler bei der Aufstellungsberechnung:", e);
+      return { assignment: {}, bench: [] };
     }
-  });
+  }, [players, formation, tab]);
+
+  const nominatedCount = players.filter((p) => p.nominated).length;
+
+  return (
+    <div className="min-h-screen bg-neutral-100 text-neutral-900 flex flex-col">
+      <header className="bg-neutral-900 text-white sticky top-0 z-20 shadow-lg border-b-4 border-red-600">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-2 border-dashed border-red-500 flex items-center justify-center flex-shrink-0 bg-neutral-800">
+            <IconShield className="w-6 h-6 text-red-500" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight truncate">
+              TuS Diedesfeld <span className="text-red-500">–</span> Aufstellungs-Planer
+            </h1>
+            <p className="text-xs text-neutral-400 uppercase tracking-widest">
+              Kaderplanung &amp; Aufstellungs-Empfehlung
+            </p>
+          </div>
+        </div>
+        <nav className="max-w-6xl mx-auto px-4 flex gap-1">
+          <TabButton active={tab === "spieler"} onClick={() => setTab("spieler")} icon={<IconUsers className="w-4 h-4" />} label="Spieler-Datenbank" />
+          <TabButton active={tab === "aufstellung"} onClick={() => setTab("aufstellung")} icon={<IconListChecks className="w-4 h-4" />} label="Aufstellungs-Empfehlung" />
+        </nav>
+      </header>
+
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-4 py-5">
+        {tab === "spieler" ? (
+          <SpielerTab players={players} updatePlayer={updatePlayer} addPlayer={addPlayer} deletePlayer={deletePlayer}
+            exportData={exportData} importData={importData} fileInputRef={fileInputRef} nominatedCount={nominatedCount} />
+        ) : (
+          <AufstellungTab formation={formation} setFormation={setFormation} lineup={lineup} players={players} nominatedCount={nominatedCount} />
+        )}
+      </main>
+
+      <footer className="text-center text-xs text-neutral-400 py-4">
+        TuS Diedesfeld · Aufstellungs-Planer · Daten werden lokal in deinem Browser gespeichert
+      </footer>
+    </div>
+  );
 }
 
-render();
+function TabButton({ active, onClick, icon, label }) {
+  return (
+    <button onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-md transition-colors ${active ? "bg-neutral-100 text-neutral-900" : "text-neutral-300 hover:text-white hover:bg-neutral-800"}`}>
+      {icon}{label}
+    </button>
+  );
+}
+
+function Select({ value, onChange, options, placeholder, className = "" }) {
+  return (
+    <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}
+      className={`w-full bg-white border border-neutral-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 ${className}`}>
+      {placeholder !== undefined && <option value="">{placeholder}</option>}
+      {options.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+    </select>
+  );
+}
+
+function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData, importData, fileInputRef, nominatedCount }) {
+  const posOptions = POSITIONS.map((p) => ({ value: p, label: `${p} – ${POS_LABEL[p]}` }));
+  const noteOptions = NOTEN.map((n) => ({ value: n, label: n === 1 ? "1 (beste)" : n === 6 ? "6 (schlecht.)" : String(n) }));
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-neutral-900">Spieler-Datenbank</h2>
+          <p className="text-xs text-neutral-500">
+            {players.length} Spieler erfasst · <span className="font-semibold text-red-600">{nominatedCount} nominiert</span> · Noten: 1 = beste, 6 = schlechteste
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={addPlayer} className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">
+            <IconPlus className="w-4 h-4" /> Spieler hinzufügen
+          </button>
+          <button onClick={exportData} className="flex items-center gap-1.5 bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">
+            <IconDownload className="w-4 h-4" /> Daten exportieren
+          </button>
+          <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="flex items-center gap-1.5 bg-white hover:bg-neutral-50 text-neutral-900 border border-neutral-300 text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">
+            <IconUpload className="w-4 h-4" /> Daten importieren
+          </button>
+          <input type="file" accept="application/json" ref={fileInputRef} onChange={importData} className="hidden" />
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white shadow-sm">
+        <table className="w-full text-sm" style={{ minWidth: "1080px" }}>
+          <thead>
+            <tr className="bg-neutral-900 text-white text-xs uppercase tracking-wide">
+              <th className="px-3 py-2.5 text-left rounded-tl-lg" style={{ minWidth: "220px" }}>Name</th>
+              <th className="px-3 py-2.5 text-center">Nominiert</th>
+              <th className="px-3 py-2.5 text-left">Position 1</th>
+              <th className="px-3 py-2.5 text-left">Note 1</th>
+              <th className="px-3 py-2.5 text-left">Position 2</th>
+              <th className="px-3 py-2.5 text-left">Note 2</th>
+              <th className="px-3 py-2.5 text-left">Position 3</th>
+              <th className="px-3 py-2.5 text-left">Note 3</th>
+              <th className="px-3 py-2.5 text-left">Positions-Lock</th>
+              <th className="px-3 py-2.5 text-center rounded-tr-lg">Aktion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {players.length === 0 && (
+              <tr><td colSpan={10} className="px-3 py-8 text-center text-neutral-400">Noch keine Spieler erfasst. Klicke auf „Spieler hinzufügen".</td></tr>
+            )}
+            {players.map((p, idx) => {
+              const lockOptions = [p.pos1, p.pos2, p.pos3].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).map((pos) => ({ value: pos, label: pos }));
+              return (
+                <tr key={p.id} className={idx % 2 === 0 ? "bg-white" : "bg-neutral-50"}>
+                  <td className="px-3 py-2" style={{ minWidth: "220px" }}>
+                    <input type="text" value={p.name} onChange={(e) => updatePlayer(p.id, "name", e.target.value)} placeholder="Name eingeben"
+                      className="w-full border border-neutral-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      style={{ minWidth: "200px" }} />
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <input type="checkbox" checked={p.nominated} onChange={(e) => updatePlayer(p.id, "nominated", e.target.checked)}
+                      className="w-4 h-4 cursor-pointer accent-red" style={{ accentColor: "#dc2626" }} />
+                  </td>
+                  <td className="px-3 py-2" style={{ minWidth: "130px" }}><Select value={p.pos1} onChange={(v) => updatePlayer(p.id, "pos1", v)} options={posOptions} placeholder="– wählen –" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note1 ?? ""} onChange={(v) => updatePlayer(p.id, "note1", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "130px" }}><Select value={p.pos2} onChange={(v) => updatePlayer(p.id, "pos2", v)} options={posOptions} placeholder="– optional –" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note2 ?? ""} onChange={(v) => updatePlayer(p.id, "note2", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "130px" }}><Select value={p.pos3} onChange={(v) => updatePlayer(p.id, "pos3", v)} options={posOptions} placeholder="– optional –" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "110px" }}><Select value={p.note3 ?? ""} onChange={(v) => updatePlayer(p.id, "note3", v === "" ? null : Number(v))} options={noteOptions} placeholder="–" /></td>
+                  <td className="px-3 py-2" style={{ minWidth: "130px" }}>
+                    <Select value={p.lock || "Keine"} onChange={(v) => updatePlayer(p.id, "lock", v || "Keine")} options={[{ value: "Keine", label: "Keine" }, ...lockOptions]} />
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button onClick={() => deletePlayer(p.id)} title="Spieler löschen" className="text-neutral-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50">
+                      <IconTrash className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AufstellungTab({ formation, setFormation, lineup, players, nominatedCount }) {
+  const findPlayer = (id) => players.find((p) => p.id === id);
+
+  const warnings = [];
+  POSITIONS.forEach((pos) => {
+    (lineup.assignment[pos] || []).forEach((entry) => {
+      if (entry.fachfremd && entry.playerId) {
+        const pl = findPlayer(entry.playerId);
+        warnings.push(`${pl ? pl.name || "Unbenannt" : "Unbekannt"} spielt fachfremd auf ${pos}`);
+      }
+    });
+  });
+
+  const emptyCount = POSITIONS.reduce((sum, pos) => sum + (lineup.assignment[pos] || []).filter((e) => e.empty).length, 0);
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-neutral-900">Aufstellungs-Empfehlung</h2>
+          <p className="text-xs text-neutral-500">{nominatedCount} Spieler nominiert</p>
+        </div>
+        <div className="w-full sm:w-64">
+          <label className="text-xs font-semibold text-neutral-600 mb-1 block">Formation</label>
+          <select value={formation} onChange={(e) => setFormation(e.target.value)}
+            className="w-full bg-white border border-neutral-300 rounded-md px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500">
+            {Object.keys(FORMATIONS).map((f) => (<option key={f} value={f}>{f}</option>))}
+          </select>
+        </div>
+      </div>
+
+      {nominatedCount === 0 ? (
+        <div className="bg-white border border-neutral-200 rounded-lg p-8 text-center text-neutral-400">
+          Keine nominierten Spieler vorhanden. Nominiere Spieler im Tab „Spieler-Datenbank".
+        </div>
+      ) : (
+        <>
+          {emptyCount > 0 && (
+            <div className="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2.5">
+              <IconAlert className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>{emptyCount} Position(en) konnten nicht besetzt werden – es sind nicht genug nominierte Spieler vorhanden.</span>
+            </div>
+          )}
+          {warnings.length > 0 && (
+            <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-300 text-amber-800 text-sm rounded-md px-3 py-2.5">
+              <IconAlert className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-semibold mb-1">Position(en) fachfremd besetzt:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {warnings.map((w, i) => (<li key={i}>{w}</li>))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl bg-gradient-to-b from-green-700 to-green-800 border-4 border-white shadow-lg p-4 sm:p-6 mb-6">
+            <div className="flex flex-col gap-4">
+              {LINES.map((line) => {
+                const entries = [];
+                line.positions.forEach((pos) => { (lineup.assignment[pos] || []).forEach((e) => entries.push({ pos, ...e })); });
+                if (entries.length === 0) return null;
+                return (
+                  <div key={line.label} className="flex flex-wrap justify-center gap-2 sm:gap-3">
+                    {entries.map((e, i) => {
+                      const pl = e.playerId ? findPlayer(e.playerId) : null;
+                      return (
+                        <div key={line.label + i}
+                          className={`w-24 sm:w-28 rounded-lg px-2 py-2 text-center shadow-md border-2 ${e.empty ? "bg-white border-dashed border-white text-white" : e.fachfremd ? "bg-yellow-300 border-yellow-600 text-neutral-900" : "bg-white border-neutral-900 text-neutral-900"}`}
+                          style={e.empty ? { backgroundColor: "rgba(255,255,255,0.2)", borderColor: "rgba(255,255,255,0.6)", color: "rgba(255,255,255,0.85)" } : undefined}>
+                          <div className="text-xs font-bold uppercase tracking-wide text-red-600">{e.pos}</div>
+                          <div className="text-xs font-semibold truncate">{e.empty ? "Unbesetzt" : (pl ? (pl.name || "Unbenannt") : "?")}</div>
+                          {!e.empty && (<div className="text-xs text-neutral-500">Note {e.note}{e.fachfremd && " ⚠"}</div>)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-neutral-900 mb-2 flex items-center gap-1.5">
+              <IconUsers className="w-4 h-4 text-red-600" /> Auswechselbank
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {lineup.bench.map((entry, i) => (
+                <div key={i} className={`rounded-lg px-3 py-3 text-center border shadow-sm ${entry ? "bg-white border-neutral-200" : "bg-neutral-100 border-dashed border-neutral-300"}`}>
+                  {entry ? (
+                    <>
+                      <div className="text-xs font-semibold text-neutral-900 truncate">{entry.player.name || "Unbenannt"}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">{declaredPositions(entry.player).map((d) => d.pos).join(" / ") || "–"}</div>
+                      <span className={`inline-block mt-1 text-xs font-bold uppercase px-1.5 py-0.5 rounded ${entry.kategorie === "Defensiv" ? "bg-neutral-900 text-white" : entry.kategorie === "Offensiv" ? "bg-red-600 text-white" : "bg-neutral-300 text-neutral-800"}`}>
+                        {entry.kategorie}
+                      </span>
+                    </>
+                  ) : (<span className="text-xs text-neutral-400">Unbesetzt</span>)}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 </body>
 </html>
