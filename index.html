@@ -228,57 +228,125 @@ function fachfremdEligible(player, pos) {
   return true;
 }
 
+/* Klassischer O(n^3) Ungarischer Algorithmus (Kuhn-Munkres) für die global
+   optimale Zuordnung Spieler <-> Positions-Slot (minimiert die Summe der
+   Kosten/Noten). Bei max. 20 nominierten Spielern und 11 Slots ist die
+   Matrix winzig (höchstens 31x31) -> Rechenzeit liegt im Bereich von
+   Bruchteilen einer Millisekunde, kein Performance-Risiko. */
+function hungarianMinCost(cost) {
+  const n = cost.length;
+  const INF = Infinity;
+  const u = new Array(n + 1).fill(0);
+  const v = new Array(n + 1).fill(0);
+  const p = new Array(n + 1).fill(0);
+  const way = new Array(n + 1).fill(0);
+  for (let i = 1; i <= n; i++) {
+    p[0] = i;
+    let j0 = 0;
+    const minv = new Array(n + 1).fill(INF);
+    const used = new Array(n + 1).fill(false);
+    do {
+      used[j0] = true;
+      const i0 = p[j0];
+      let delta = INF, j1 = -1;
+      for (let j = 1; j <= n; j++) {
+        if (!used[j]) {
+          const cur = cost[i0 - 1][j - 1] - u[i0] - v[j];
+          if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+          if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+        }
+      }
+      for (let j = 0; j <= n; j++) {
+        if (used[j]) { u[p[j]] += delta; v[j] -= delta; }
+        else { minv[j] -= delta; }
+      }
+      j0 = j1;
+    } while (p[j0] !== 0);
+    do {
+      const j1 = way[j0];
+      p[j0] = p[j1];
+      j0 = j1;
+    } while (j0 !== 0);
+  }
+  const assignCols = new Array(n).fill(-1);
+  for (let j = 1; j <= n; j++) { if (p[j] > 0) assignCols[p[j] - 1] = j - 1; }
+  return assignCols;
+}
+
+/* Kosten einer Spieler/Positions-Paarung: echte gelernte Position (Note 1-6) < 
+   fachfremd erlaubte Paarung (100 + Notenbest, also 101-106) < Slot bleibt leer
+   (1000) < gesperrte/kategoriefremde Paarung, wird nie gewählt (1.000.000). */
+const FACHFREMD_BASE = 100;
+const DUMMY_COST = 1000;
+const DISALLOWED = 1000000;
+
+function costForPlayerSlot(player, pos) {
+  if (player.lock && player.lock !== "Keine") {
+    if (pos !== player.lock) return DISALLOWED;
+    const decl = declaredPositions(player).find((d) => d.pos === pos);
+    return decl ? decl.note : DISALLOWED;
+  }
+  const decl = declaredPositions(player).find((d) => d.pos === pos);
+  if (decl) return decl.note;
+  if (fachfremdEligible(player, pos)) return FACHFREMD_BASE + bestNote(player);
+  return DISALLOWED;
+}
+
 function computeLineup(players, formationKey) {
   const slotList = FORMATIONS[formationKey] || FORMATIONS[Object.keys(FORMATIONS)[0]];
   const nominated = players.filter((p) => p.nominated);
+  const nSlots = slotList.length;
+  const nPlayers = nominated.length;
 
-  const remainingSlots = {};
-  slotList.forEach((pos) => (remainingSlots[pos] = (remainingSlots[pos] || 0) + 1));
-
-  const candidates = [];
-  nominated.forEach((player) => {
-    eligiblePositions(player).forEach((e) => {
-      if (slotList.includes(e.pos)) {
-        candidates.push({ playerId: player.id, pos: e.pos, note: e.note });
-      }
-    });
-  });
-  candidates.sort((a, b) => a.note - b.note);
-
-  const usedPlayers = new Set();
   const assignment = {};
   POSITIONS.forEach((p) => (assignment[p] = []));
 
-  candidates.forEach((c) => {
-    if (usedPlayers.has(c.playerId)) return;
-    if ((remainingSlots[c.pos] || 0) <= 0) return;
-    assignment[c.pos].push({ playerId: c.playerId, note: c.note, fachfremd: false, empty: false });
-    remainingSlots[c.pos] -= 1;
-    usedPlayers.add(c.playerId);
-  });
+  if (nPlayers === 0) {
+    slotList.forEach((pos) => assignment[pos].push({ playerId: null, note: null, fachfremd: false, empty: true }));
+    return { assignment, bench: new Array(6).fill(null), averages: { def: null, off: null, all: null } };
+  }
 
-  // Fallback: notenbester verbleibender, für diese Position "erlaubter" Spieler
-  let leftover = nominated.filter((p) => !usedPlayers.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
-
-  Object.keys(remainingSlots).forEach((pos) => {
-    let guard = 0;
-    while (remainingSlots[pos] > 0 && guard < 1000) {
-      guard += 1;
-      const idx = leftover.findIndex((p) => fachfremdEligible(p, pos));
-      if (idx === -1) {
-        assignment[pos].push({ playerId: null, note: null, fachfremd: false, empty: true });
-        remainingSlots[pos] -= 1;
-        continue;
-      }
-      const player = leftover[idx];
-      leftover.splice(idx, 1);
-      assignment[pos].push({ playerId: player.id, note: bestNote(player), fachfremd: true, empty: false });
-      usedPlayers.add(player.id);
-      remainingSlots[pos] -= 1;
+  // Matrixgröße: jeder Spieler bekommt eine kostenlose "Bank"-Spalte, jeder
+  // Slot eine "bleibt leer"-Zeile - unabhängig davon, ob mehr Spieler als
+  // Slots vorhanden sind oder umgekehrt.
+  const N = nPlayers + nSlots;
+  const cost = [];
+  for (let i = 0; i < N; i++) {
+    const row = new Array(N);
+    const isRealPlayer = i < nPlayers;
+    for (let j = 0; j < N; j++) {
+      const isRealSlot = j < nSlots;
+      if (isRealPlayer && isRealSlot) row[j] = costForPlayerSlot(nominated[i], slotList[j]);
+      else if (isRealPlayer && !isRealSlot) row[j] = 0;
+      else if (!isRealPlayer && isRealSlot) row[j] = DUMMY_COST;
+      else row[j] = 0;
     }
-  });
+    cost.push(row);
+  }
 
-  const rest = nominated.filter((p) => !usedPlayers.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
+  const assignCols = hungarianMinCost(cost);
+  const colToRow = new Array(N).fill(-1);
+  for (let i = 0; i < N; i++) colToRow[assignCols[i]] = i;
+
+  const usedPlayerIds = new Set();
+  for (let j = 0; j < nSlots; j++) {
+    const i = colToRow[j];
+    const pos = slotList[j];
+    if (i === -1 || i >= nPlayers) {
+      assignment[pos].push({ playerId: null, note: null, fachfremd: false, empty: true });
+      continue;
+    }
+    const player = nominated[i];
+    const decl = declaredPositions(player).find((d) => d.pos === pos);
+    if (decl) {
+      assignment[pos].push({ playerId: player.id, note: decl.note, fachfremd: false, empty: false });
+    } else {
+      assignment[pos].push({ playerId: player.id, note: bestNote(player), fachfremd: true, empty: false });
+    }
+    usedPlayerIds.add(player.id);
+  }
+
+  const rest = nominated.filter((p) => !usedPlayerIds.has(p.id)).sort((a, b) => bestNote(a) - bestNote(b));
 
   const defPure = rest.filter(isPureDef).slice(0, 2);
   const offPure = rest.filter(isPureOff).slice(0, 2);
@@ -295,6 +363,7 @@ function computeLineup(players, formationKey) {
   while (benchEntries.length < 6) benchEntries.push(null);
 
   // Notendurchschnitte der Startelf (TW zählt bei Abwehr/Offensive nicht mit,
+
   // fließt aber in den Gesamtschnitt ein)
   let defSum = 0, defCount = 0, offSum = 0, offCount = 0, allSum = 0, allCount = 0;
   POSITIONS.forEach((pos) => {
