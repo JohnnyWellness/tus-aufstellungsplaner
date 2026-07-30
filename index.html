@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TuS Diedesfeld – Aufstellungs-Planer</title>
 
-<!-- Statisch vorkompiliertes Tailwind CSS (keine Laufzeit-Kompilierung / kein MutationObserver -> stabiler & schneller als die Play-CDN-Variante) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" />
+<!-- Statisch vorkompiliertes Tailwind CSS (keine Laufzeit-Kompilierung -> stabiler & schneller als die Play-CDN-Variante) -->
+<link rel="stylesheet" href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" />
 
 <!-- React + ReactDOM -->
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -16,19 +16,48 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  /* Kleine Ergänzungen, die im statischen Tailwind-Build fehlen */
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; }
   .accent-red { accent-color: #dc2626; }
+  #boot-fallback { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; }
+  #boot-fallback.hidden { display:none; }
 </style>
 </head>
 <body>
 <div id="root">
-  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;">
+  <div id="boot-loading" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;">
     Lade App …
   </div>
 </div>
 
-<script type="text/babel" data-presets="react">
+<!-- Fallback: falls React nach ein paar Sekunden nicht gestartet ist (z.B. weil eine CDN-Datei
+     nicht laden konnte), zeigen wir eine klare Meldung statt eines endlosen Ladescreens. -->
+<div id="boot-fallback" class="hidden">
+  <div style="max-width:440px;">
+    <h1 style="font-size:20px;font-weight:bold;margin-bottom:8px;">Die App konnte nicht laden</h1>
+    <p style="color:#666;margin-bottom:16px;">
+      Eine benötigte Ressource (React, Tailwind oder Babel) konnte nicht vom Server geladen werden.
+      Das passiert meist bei fehlender Internetverbindung, einem Werbeblocker/Firewall, der CDN-Skripte blockiert,
+      oder einer instabilen Verbindung. Öffne die Entwicklertools (F12) → Tab „Konsole"/„Netzwerk", um die genaue
+      Fehlermeldung zu sehen.
+    </p>
+    <button onclick="window.location.reload()" style="background:#dc2626;color:white;padding:10px 20px;border-radius:6px;border:none;font-weight:600;cursor:pointer;">
+      Seite neu laden
+    </button>
+  </div>
+</div>
+
+<script>
+  // Wenn nach 6 Sekunden noch kein React-Inhalt gerendert wurde, gehen wir von einem
+  // Ladefehler aus und zeigen die Fallback-Meldung statt des endlosen Ladescreens.
+  window.__bootTimeout = setTimeout(function () {
+    var loading = document.getElementById("boot-loading");
+    if (loading) {
+      document.getElementById("boot-fallback").classList.remove("hidden");
+    }
+  }, 6000);
+</script>
+
+<script type="text/plain" id="app-source">
 const { useState, useEffect, useMemo, useRef } = React;
 
 /* ------------------------------------------------------------------ */
@@ -645,6 +674,54 @@ function AufstellungTab({ formation, setFormation, lineup, players, nominatedCou
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<ErrorBoundary><App /></ErrorBoundary>);
+</script>
+
+<!-- Manuelle Babel-Transformation statt des automatischen text/babel-Scanners:
+     so erzwingen wir explizit die "classic" JSX-Runtime (React.createElement),
+     die zum global eingebundenen UMD-React passt. Der automatische Scanner
+     würde in neueren Babel-Versionen standardmäßig die "automatic" Runtime
+     nutzen, die ein `import`-Statement einfügt - das bricht in einem
+     klassischen <script>-Tag (kein ES-Modul) mit genau dem Fehler ab, den
+     wir gerade beheben. -->
+<script>
+  (function () {
+    function boot() {
+      try {
+        var code = document.getElementById("app-source").textContent;
+        var output = Babel.transform(code, {
+          presets: [["react", { runtime: "classic" }]],
+        }).code;
+        var s = document.createElement("script");
+        s.text = output;
+        document.body.appendChild(s);
+        if (window.__bootTimeout) clearTimeout(window.__bootTimeout);
+      } catch (e) {
+        console.error("Start der App fehlgeschlagen:", e);
+        var fb = document.getElementById("boot-fallback");
+        if (fb) fb.classList.remove("hidden");
+      }
+    }
+    if (window.Babel && window.React && window.ReactDOM) {
+      boot();
+    } else {
+      console.error("React, ReactDOM oder Babel wurden nicht geladen.");
+      var fb = document.getElementById("boot-fallback");
+      if (fb) fb.classList.remove("hidden");
+    }
+  })();
+</script>
+
+<script>
+  // Zusätzlicher Schutz: falls eines der CDN-Skripte (React/ReactDOM/Babel) selbst
+  // nicht laden kann, wird das hier sofort erkannt statt erst nach 6 Sekunden.
+  window.addEventListener("error", function (e) {
+    if (e && e.target && (e.target.tagName === "SCRIPT" || e.target.tagName === "LINK")) {
+      console.error("Ressource konnte nicht geladen werden:", e.target.src || e.target.href);
+      var fb = document.getElementById("boot-fallback");
+      if (fb) fb.classList.remove("hidden");
+      if (window.__bootTimeout) clearTimeout(window.__bootTimeout);
+    }
+  }, true);
 </script>
 </body>
 </html>
