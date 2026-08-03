@@ -658,7 +658,7 @@ function SpielerTab({ players, updatePlayer, addPlayer, deletePlayer, exportData
           <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 text-sm font-semibold px-3 py-2 rounded-md transition-colors shadow-sm">
             <IconUpload className="w-4 h-4" /> Daten importieren
           </button>
-          <input type="file" accept="application/json" ref={fileInputRef} onChange={importData} className="hidden" />
+          <input type="file" accept="application/json,.json" ref={fileInputRef} onChange={importData} className="hidden" />
         </div>
       </div>
 
